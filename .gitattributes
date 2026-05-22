@@ -1,0 +1,5 @@
+# shell scripts must keep LF endings — pod runs on Linux, CRLF ломает shebang
+*.sh text eol=lf
+slim_provisioning.sh text eol=lf
+bake_custom_nodes.sh text eol=lf
+Dockerfile text eol=lf
