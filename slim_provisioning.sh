@@ -134,7 +134,7 @@ echo "  workflows: $(find "$WORKFLOWS_DIR" -name '*.json' 2>/dev/null | wc -l) J
 # Same trick as redsky-comfy: vastai/comfy base image keeps full ComfyUI в /opt/
 # и копирует только если destination пустое. Наш image с custom_nodes ломает это.
 if [ ! -f "$COMFYUI_DIR/main.py" ]; then
-  echo "[5/7] ComfyUI main.py missing — restoring base files from /opt/workspace-internal..."
+  echo "[5/9] ComfyUI main.py missing — restoring base files from /opt/workspace-internal..."
   if [ -d /opt/workspace-internal/ComfyUI ]; then
     rsync -a --ignore-existing /opt/workspace-internal/ComfyUI/ "$COMFYUI_DIR/" 2>&1 | tail -5
     if [ -f "$COMFYUI_DIR/main.py" ]; then
@@ -148,11 +148,49 @@ if [ ! -f "$COMFYUI_DIR/main.py" ]; then
     exit 1
   fi
 else
-  echo "[5/7] main.py exists, skipping base restore"
+  echo "[5/9] main.py exists, skipping base restore"
 fi
 
+# --- 5b. Pin ComfyUI to v0.3.74 (pre-ZImage class) ----------------------
+# Employee's setup runs ≤ v0.3.74 where z_image_turbo loads as generic flow class
+# that RES4LYF handles. ComfyUI v0.3.75+ added `class ZImage(Lumina2):` (2025-11-25)
+# which RES4LYF doesn't know → ClownsharKSampler fails.
+# Force /workspace/ComfyUI to v0.3.74 so xmode workflow runs end-to-end.
+TARGET_COMFY_TAG="${TARGET_COMFY_TAG:-v0.3.74}"
+echo "[5b/9] pinning ComfyUI to $TARGET_COMFY_TAG..."
+cd "$COMFYUI_DIR"
+if [ -d .git ]; then
+  CURRENT_TAG=$(git describe --tags --always 2>/dev/null || echo "unknown")
+  echo "  current: $CURRENT_TAG  target: $TARGET_COMFY_TAG"
+  if [ "$CURRENT_TAG" != "$TARGET_COMFY_TAG" ]; then
+    git fetch --depth=1 origin "refs/tags/$TARGET_COMFY_TAG:refs/tags/$TARGET_COMFY_TAG" 2>&1 | tail -3
+    git checkout "$TARGET_COMFY_TAG" 2>&1 | tail -3 || echo "  WARN: checkout failed"
+    NEW_TAG=$(git describe --tags --always 2>/dev/null || echo "unknown")
+    echo "  now at: $NEW_TAG"
+  else
+    echo "  already at target"
+  fi
+else
+  echo "  WARN: /workspace/ComfyUI is not a git repo, cannot downgrade — will try anyway"
+fi
+
+# --- 5c. Sync employee's custom_nodes from R2 (replace baked ones) ------
+# Baked custom_nodes from public GitHub may differ from employee's versions.
+# Authoritative source: R2 teasing-nsfw/{animator,xmode}/custom_nodes/
+echo "[5c/9] syncing custom_nodes from R2 (employee's versions, replacing baked)..."
+for sub in animator xmode; do
+  if rclone lsd "r2:$R2_BUCKET/$R2_PREFIX/$sub/custom_nodes" >/dev/null 2>&1; then
+    echo "  -> $R2_PREFIX/$sub/custom_nodes/"
+    rclone copy "r2:$R2_BUCKET/$R2_PREFIX/$sub/custom_nodes" "$NODES_DIR" \
+      --transfers 8 --checkers 16 \
+      --stats 30s --stats-one-line \
+      --update
+  fi
+done
+echo "  custom_nodes now: $(ls "$NODES_DIR" 2>/dev/null | wc -l) dirs"
+
 # --- 6. FileBrowser ------------------------------------------------------
-echo "[6/7] FileBrowser setup..."
+echo "[6/9] FileBrowser setup..."
 if [ ! -f /workspace/.filebrowser.db ]; then
   filebrowser config init --address 0.0.0.0 --port 8090 --root /workspace --database /workspace/.filebrowser.db >/dev/null
   filebrowser users add "$FB_USER" "$FB_PASSWORD" --perm.admin --database /workspace/.filebrowser.db >/dev/null
@@ -163,7 +201,7 @@ if ! pgrep -f "filebrowser --database" >/dev/null; then
 fi
 
 # --- 7. Restart ComfyUI --------------------------------------------------
-echo "[7/7] restarting ComfyUI..."
+echo "[7/9] restarting ComfyUI..."
 if supervisorctl status comfyui >/dev/null 2>&1; then
   supervisorctl restart comfyui 2>&1 || echo "  supervisorctl restart returned non-zero"
 else
