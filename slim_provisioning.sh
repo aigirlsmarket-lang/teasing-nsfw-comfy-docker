@@ -151,12 +151,12 @@ else
   echo "[5/9] main.py exists, skipping base restore"
 fi
 
-# --- 5b. Pin ComfyUI to v0.3.74 (pre-ZImage class) ----------------------
-# Employee's setup runs ≤ v0.3.74 where z_image_turbo loads as generic flow class
-# that RES4LYF handles. ComfyUI v0.3.75+ added `class ZImage(Lumina2):` (2025-11-25)
-# which RES4LYF doesn't know → ClownsharKSampler fails.
-# Force /workspace/ComfyUI to v0.3.74 so xmode workflow runs end-to-end.
-TARGET_COMFY_TAG="${TARGET_COMFY_TAG:-v0.3.74}"
+# --- 5b. Pin ComfyUI to v0.8.2 (employee's exact version, revealed in logs) ----
+# Employee runs ComfyUI v0.8.2 (revision 4498 2e9d5168 *DETACHED, 2026-01-07).
+# In his logs CRT-Nodes/KJNodes also fail import with `_append_guide_attention_entry`
+# — это нормально, FancyTimerNode не требуется для исполнения xmode.
+# Force /workspace/ComfyUI to v0.8.2 so xmode workflow runs end-to-end.
+TARGET_COMFY_TAG="${TARGET_COMFY_TAG:-v0.8.2}"
 echo "[5b/9] pinning ComfyUI to $TARGET_COMFY_TAG..."
 cd "$COMFYUI_DIR"
 if [ -d .git ]; then
