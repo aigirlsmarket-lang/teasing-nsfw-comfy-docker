@@ -189,6 +189,68 @@ for sub in animator xmode; do
 done
 echo "  custom_nodes now: $(ls "$NODES_DIR" 2>/dev/null | wc -l) dirs"
 
+# --- 5d. Resolution-Master full replace (R2 ver has no smart_fit arg) ----
+# Employee's R2 Resolution-Master is older than what we'd get on overlay copy.
+# Newer baked version requires `smart_fit` arg that xmode JSON doesn't provide → crash.
+# Force full replace (rm then rclone) instead of overlay merge.
+echo "[5d/9] replacing Resolution-Master with R2 employee's version..."
+if rclone lsd "r2:$R2_BUCKET/$R2_PREFIX/xmode/custom_nodes/Comfyui-Resolution-Master" >/dev/null 2>&1; then
+  rm -rf "$NODES_DIR/Comfyui-Resolution-Master"
+  rclone copy "r2:$R2_BUCKET/$R2_PREFIX/xmode/custom_nodes/Comfyui-Resolution-Master/" \
+    "$NODES_DIR/Comfyui-Resolution-Master/" --transfers 8 --quiet
+  echo "  Resolution-Master replaced ($(find "$NODES_DIR/Comfyui-Resolution-Master" -name '*.py' | wc -l) .py files)"
+else
+  echo "  WARN: Resolution-Master not in R2, keeping baked version"
+fi
+
+# --- 5e. Inject FancyTimer + CRT Post-Process stubs into RES4LYF ---------
+# CRT-Nodes import fails on v0.8.2 (taehv missing) — FancyTimerNode + CRT Post-
+# Process Suite never register. xmode workflow references both. Stub them in
+# RES4LYF/__init__.py (which always loads) so the workflow validates and runs.
+# FancyTimer = no-op display, CRT Post = passthrough image. Quality identical to
+# employee's setup (his CRT-Nodes also fails the same way per his logs).
+echo "[5e/9] injecting FancyTimer + CRT Post stubs into RES4LYF..."
+RES4LYF_INIT="$NODES_DIR/RES4LYF/__init__.py"
+if [ -f "$RES4LYF_INIT" ] && ! grep -q "BEGIN xmode stubs" "$RES4LYF_INIT"; then
+  cat >> "$RES4LYF_INIT" <<'EOF'
+
+# === BEGIN xmode stubs (FancyTimer + CRT Post-Process Suite) ===
+class _XmodeFancyTimerNode:
+    """No-op stub — original from CRT-Nodes fails import due to LTX23/taehv deps."""
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {}, "hidden": {"prompt": "PROMPT", "unique_id": "UNIQUE_ID"}}
+    RETURN_TYPES = ()
+    FUNCTION = "execute"
+    OUTPUT_NODE = True
+    CATEGORY = "stubs"
+    def execute(self, **kwargs): return {}
+
+class _XmodeCRTPostProcessStub:
+    """Passthrough stub for CRT Post-Process Suite. Returns input image unchanged."""
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"image": ("IMAGE",)}, "optional": {}, "hidden": {}}
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "execute"
+    CATEGORY = "stubs"
+    def execute(self, image, **kwargs):
+        return (image,)
+
+NODE_CLASS_MAPPINGS["FancyTimerNode"] = _XmodeFancyTimerNode
+NODE_CLASS_MAPPINGS["CRT Post-Process Suite"] = _XmodeCRTPostProcessStub
+NODE_DISPLAY_NAME_MAPPINGS["FancyTimerNode"] = "FancyTimer (stub)"
+NODE_DISPLAY_NAME_MAPPINGS["CRT Post-Process Suite"] = "CRT Post (passthrough)"
+print("[XMODE STUBS] registered FancyTimerNode + CRT Post-Process Suite")
+# === END xmode stubs ===
+EOF
+  # Clear pycache so the new stubs take effect on next import
+  find "$NODES_DIR/RES4LYF" -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+  echo "  stubs injected, pycache cleared"
+else
+  echo "  RES4LYF __init__.py already has stubs or missing"
+fi
+
 # --- 6. FileBrowser ------------------------------------------------------
 echo "[6/9] FileBrowser setup..."
 if [ ! -f /workspace/.filebrowser.db ]; then
