@@ -203,6 +203,23 @@ else
   echo "  WARN: Resolution-Master not in R2, keeping baked version"
 fi
 
+# --- 5e0. Stub `_append_guide_attention_entry` in comfy_extras/nodes_lt.py ---
+# ComfyUI v0.8.2 doesn't have this function. KJNodes' ltxv_nodes.py imports it
+# at top-level → KJNodes import fails → GetImageSizeAndCount/ImageResizeKJv2 don't
+# register → animator workflow validation fails ("missing nodes").
+# Stub allows KJNodes to import (LTX nodes won't work but xmode/animator не их используют).
+NODES_LT="$COMFYUI_DIR/comfy_extras/nodes_lt.py"
+if [ -f "$NODES_LT" ] && ! grep -q "_append_guide_attention_entry" "$NODES_LT"; then
+  cat >> "$NODES_LT" <<'EOF'
+
+
+def _append_guide_attention_entry(*args, **kwargs):
+    """Stub for KJNodes — not used by xmode/animator workflows."""
+    raise NotImplementedError("not available in v0.8.2")
+EOF
+  echo "[5e0/9] added stub _append_guide_attention_entry in comfy_extras/nodes_lt.py"
+fi
+
 # --- 5e. Inject FancyTimer + CRT Post-Process stubs into RES4LYF ---------
 # CRT-Nodes import fails on v0.8.2 (taehv missing) — FancyTimerNode + CRT Post-
 # Process Suite never register. xmode workflow references both. Stub them in
