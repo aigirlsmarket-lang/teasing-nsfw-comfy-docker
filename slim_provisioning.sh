@@ -95,6 +95,22 @@ for sub in animator xmode; do
     --stats 30s --stats-one-line
 done
 
+# --- 2b. Selective character LoRA sync from main R2 bucket --------------
+# teasing-nsfw R2 prefix содержит только базовые модели (Wan/Z-Image/etc).
+# Character LoRA-файлы (per-model) лежат в `r2:aigirls-comfy/models/loras/`.
+# teasing_reels.py spawn_pods передаёт LORA_ZIMAGE/LORA_WAN env vars per batch.
+echo "[2b/9] pulling character LoRAs from main R2 (selective)..."
+mkdir -p "$MODELS_DIR/loras"
+for lora_var in LORA_ZIMAGE LORA_WAN; do
+  lora_name="${!lora_var:-}"
+  if [ -n "$lora_name" ] && [ ! -f "$MODELS_DIR/loras/$lora_name" ]; then
+    echo "  -> models/loras/$lora_name"
+    rclone copy "r2:$R2_BUCKET/models/loras/$lora_name" "$MODELS_DIR/loras/" \
+      --transfers 4 --quiet 2>&1 || echo "  WARN: failed to fetch $lora_name"
+  fi
+done
+ls -la "$MODELS_DIR/loras/" 2>&1 | tail -5 | sed 's/^/  /'
+
 # --- 3. Model-path compat symlinks --------------------------------------
 # Его workflow'ы используют разные пути: unet/, clip/, ckpt/.
 # Делаем symlinks из diffusion_models/ и text_encoders/ для совместимости.
